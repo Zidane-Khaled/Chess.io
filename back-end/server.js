@@ -183,6 +183,9 @@ io.on('connection', (socket) => {
         const attacker = game.players[socket.id];
         if (!attacker) return;
 
+        // Prevent attack while jumping/invulnerable
+        if (Date.now() < attacker.invulnerableUntil) return;
+
         const config = PIECE_CONFIG[attacker.piece];
         // Dynamic range/stats based on piece
         let attackRange = attacker.piece === 'bishop' || attacker.piece === 'queen' ? 400 : 100;

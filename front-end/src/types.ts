@@ -13,6 +13,7 @@ export interface Player {
     kills: number;
     piece: PieceType;
     lastAbilityTime: number;
+    jumpStartTime?: number;
 }
 
 export interface Particle {

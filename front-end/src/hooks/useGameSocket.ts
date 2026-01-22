@@ -1,6 +1,6 @@
 import { useRef, useEffect, useState } from 'react';
 import { io, Socket } from 'socket.io-client';
-import { GameStartData, GameState, Player, ShootData, PlayerUpdateData } from '../types';
+import { GameStartData, GameState, Player, PlayerUpdateData } from '../types';
 
 const SOCKET_URL = "http://localhost:3001";
 
@@ -38,7 +38,12 @@ export const useGameSocket = () => {
                 y: data.y,
                 radius: 15,
                 color: data.color,
-                angle: 0
+                angle: 0,
+                hp: data.hp,
+                maxHp: data.maxHp,
+                kills: data.kills,
+                piece: data.piece,
+                lastAbilityTime: data.lastAbilityTime
             };
 
             // Initialize opponent
@@ -47,8 +52,13 @@ export const useGameSocket = () => {
                 x: -100, // offscreen
                 y: -100,
                 radius: 15,
-                color: data.color === '#e74c3c' ? '#3498db' : '#e74c3c',
-                angle: 0
+                color: data.color === '#e74c3c' ? '#3498db' : '#e74c3c', // Logic handled by server usually, but keeping fallback
+                angle: 0,
+                hp: 100, // Fallback, will be updated by player_update immediately, but ideally we should get this from start data if opponent is e.g. a King
+                maxHp: 100,
+                kills: 0,
+                piece: 'pawn',
+                lastAbilityTime: 0
             };
 
             setGameState("PLAYING");

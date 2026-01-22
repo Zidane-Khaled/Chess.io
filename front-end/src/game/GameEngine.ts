@@ -79,7 +79,12 @@ export class GameEngine {
         });
 
         this.socket.on("ability_effect", (data: any) => {
-            if (data.type === 'jump') this.spawnEffect(data.x, data.y, 'jump');
+            if (data.type === 'jump') {
+                this.spawnEffect(data.x, data.y, 'jump');
+                if (data.id && this.playersRef.current[data.id]) {
+                    this.playersRef.current[data.id].jumpStartTime = Date.now();
+                }
+            }
             if (data.type === 'laser') this.spawnEffect(data.x, data.y, 'laser', data.angle);
             if (data.type === 'dash') this.spawnEffect(data.x, data.y, 'dash', data.angle);
             if (data.type === 'multi') this.spawnEffect(data.x, data.y, 'multi');
@@ -340,9 +345,20 @@ export class GameEngine {
             const img = this.images[pieceName];
             if (img && this.loadedImages >= this.totalImages) {
                 // Draw image centered, no rotation
-                // Add glow for team indication since we removed the circle
-                this.ctx.shadowBlur = 15;
-                this.ctx.shadowColor = p.color;
+                // Jump Animation Scale
+                const jumpDuration = 1500;
+                let scale = 1;
+                if (p.jumpStartTime) {
+                    const elapsed = Date.now() - p.jumpStartTime;
+                    if (elapsed < jumpDuration) {
+                        // Sine wave scale: 1 -> 1.5 -> 1
+                        scale = 1 + Math.sin((elapsed / jumpDuration) * Math.PI) * 0.5;
+                    } else {
+                        p.jumpStartTime = undefined;
+                    }
+                }
+
+                this.ctx.scale(scale, scale);
                 this.ctx.drawImage(img, -p.radius, -p.radius, p.radius * 2, p.radius * 2);
             } else {
                 // Fallback
