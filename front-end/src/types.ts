@@ -1,3 +1,6 @@
+// Piece Definitions
+export type PieceType = 'pawn' | 'knight' | 'bishop' | 'rook' | 'queen' | 'king';
+
 export interface Player {
     id: string;
     x: number;
@@ -6,7 +9,10 @@ export interface Player {
     color: string;
     angle: number;
     hp: number;
+    maxHp: number;
     kills: number;
+    piece: PieceType;
+    lastAbilityTime: number;
 }
 
 export interface Particle {
@@ -20,7 +26,7 @@ export interface Particle {
     size: number;
 }
 
-export type GameState = 'MENU' | 'WAITING' | 'PLAYING';
+export type GameState = 'MENU' | 'WAITING' | 'PLAYING' | 'GAME_OVER';
 
 export interface GameStartData {
     roomId: string;
@@ -30,10 +36,12 @@ export interface GameStartData {
     y: number;
     color: string;
     hp: number;
+    maxHp: number;
     kills: number;
+    piece: PieceType;
+    lastAbilityTime: number;
 }
 
-// Reuse Player for full updates if convenient, or keep separate
 export interface PlayerUpdateData {
     id: string;
     roomId: string;
@@ -41,12 +49,32 @@ export interface PlayerUpdateData {
     y: number;
     angle: number;
     hp: number;
+    maxHp: number;
     kills: number;
+    piece: PieceType;
+    lastAbilityTime: number;
 }
 
 export interface AttackEffectData {
+    type: 'normal' | 'jump' | 'laser' | 'dash' | 'multi'; // Extended for abilities
     x: number;
     y: number;
-    angle: number;
-    color: string;
+    angle?: number;
+    color?: string;
+    id?: string;
+}
+
+export interface UpgradeData {
+    id: string;
+    piece: PieceType;
+    hp: number;
+    maxHp: number;
+}
+
+export interface AbilityEffectData {
+    id: string;
+    type: 'jump' | 'laser' | 'dash' | 'multi';
+    x: number;
+    y: number;
+    angle?: number;
 }

@@ -1,4 +1,5 @@
 import { Socket } from "socket.io-client";
+import * as React from 'react';
 import { Player, Particle } from "../types";
 
 export class GameEngine {
@@ -16,6 +17,10 @@ export class GameEngine {
     private isRunning: boolean = false;
     private lastTime: number = 0;
 
+    private images: { [key: string]: HTMLImageElement } = {};
+    private loadedImages = 0;
+    private totalImages = 6;
+
     constructor(
         canvas: HTMLCanvasElement,
         socket: Socket,
@@ -30,12 +35,30 @@ export class GameEngine {
         this.roomIdRef = roomIdRef;
         this.localPlayerIdRef = localPlayerIdRef;
 
+        this.resize();
         this.bindInput();
         this.bindSocketEvents();
+        window.addEventListener("resize", () => this.resize());
+        this.resize();
+
+        this.loadImages();
+    }
+
+    private loadImages() {
+        const pieces = ['pawn', 'knight', 'bishop', 'rook', 'queen', 'king'];
+        pieces.forEach(piece => {
+            const img = new Image();
+            img.src = `/assets/pieces/${piece}.svg`;
+            img.onload = () => this.loadedImages++;
+            this.images[piece] = img;
+        });
     }
 
     private bindInput() {
-        window.addEventListener("keydown", (e) => this.keys[e.key.toLowerCase()] = true);
+        window.addEventListener("keydown", (e) => {
+            this.keys[e.key.toLowerCase()] = true;
+            if (e.code === 'Space') this.activateAbility();
+        });
         window.addEventListener("keyup", (e) => this.keys[e.key.toLowerCase()] = false);
         window.addEventListener("mousemove", (e) => {
             this.mouse.x = e.clientX;
@@ -49,12 +72,17 @@ export class GameEngine {
     }
 
     private bindSocketEvents() {
-        this.socket.on("shoot", (data: any) => {
-            // Deprecated, but keeping for backward compatibility if needed, or remove
-        });
+        this.socket.on("shoot", () => { }); // Deprecated
 
         this.socket.on("attack_effect", (data: { x: number, y: number, angle: number, color: string }) => {
             this.plasmaBlast(data.x, data.y, data.angle, data.color);
+        });
+
+        this.socket.on("ability_effect", (data: any) => {
+            if (data.type === 'jump') this.spawnEffect(data.x, data.y, 'jump');
+            if (data.type === 'laser') this.spawnEffect(data.x, data.y, 'laser', data.angle);
+            if (data.type === 'dash') this.spawnEffect(data.x, data.y, 'dash', data.angle);
+            if (data.type === 'multi') this.spawnEffect(data.x, data.y, 'multi');
         });
 
         this.socket.on("health_update", (data: { id: string, hp: number }) => {
@@ -69,6 +97,16 @@ export class GameEngine {
             }
         });
 
+        this.socket.on("upgrade", (data: any) => {
+            if (this.playersRef.current[data.id]) {
+                const p = this.playersRef.current[data.id];
+                p.piece = data.piece;
+                p.hp = data.hp;
+                p.maxHp = data.maxHp;
+                this.spawnEffect(p.x, p.y, 'upgrade');
+            }
+        });
+
         this.socket.on("player_respawn", (data: { id: string, x: number, y: number, hp: number, kills: number }) => {
             if (this.playersRef.current[data.id]) {
                 const p = this.playersRef.current[data.id];
@@ -77,6 +115,33 @@ export class GameEngine {
                 p.hp = data.hp;
                 p.kills = data.kills;
             }
+        });
+
+        this.socket.on("player_teleport", (data: any) => {
+            if (this.playersRef.current[data.id]) {
+                const p = this.playersRef.current[data.id];
+                p.x = data.x;
+                p.y = data.y;
+            }
+        });
+
+        this.socket.on("player_update", (data: any) => {
+            if (this.playersRef.current[data.id]) {
+                const p = this.playersRef.current[data.id];
+                p.x = data.x;
+                p.y = data.y;
+                p.angle = data.angle;
+                p.hp = data.hp;
+                p.maxHp = data.maxHp;
+                p.kills = data.kills;
+                p.piece = data.piece;
+                p.lastAbilityTime = data.lastAbilityTime;
+            }
+        });
+
+        this.socket.on("game_over", (data: any) => {
+            alert(`Game Over! Winner: ${data.winnerId}`);
+            location.reload();
         });
     }
 
@@ -105,6 +170,48 @@ export class GameEngine {
     public stop() {
         this.isRunning = false;
         if (this.animationFrameId) cancelAnimationFrame(this.animationFrameId);
+    }
+
+    private activateAbility() {
+        if (!this.isRunning) return;
+        if (this.roomIdRef.current) {
+            this.socket.emit("ability", { roomId: this.roomIdRef.current });
+        }
+    }
+
+    private spawnEffect(x: number, y: number, type: string, angle: number = 0) {
+        switch (type) {
+            case 'jump':
+                this.particles.push({ x, y, vx: 0, vy: 0, life: 30, maxLife: 30, color: '#f1c40f', size: 30 });
+                break;
+            case 'laser':
+                for (let i = 0; i < 20; i++) {
+                    this.particles.push({
+                        x: x + Math.cos(angle) * i * 20, y: y + Math.sin(angle) * i * 20,
+                        vx: 0, vy: 0, life: 10, maxLife: 10, color: '#e74c3c', size: 5
+                    });
+                }
+                break;
+            case 'dash':
+                for (let i = 0; i < 10; i++) {
+                    this.particles.push({
+                        x: x - Math.cos(angle) * i * 10, y: y - Math.sin(angle) * i * 10,
+                        vx: (Math.random() - 0.5) * 2, vy: (Math.random() - 0.5) * 2, life: 20, maxLife: 20, color: '#3498db', size: 8
+                    });
+                }
+                break;
+            case 'multi':
+                for (let i = 0; i < 16; i++) {
+                    const a = i * Math.PI / 8;
+                    this.particles.push({
+                        x, y, vx: Math.cos(a) * 10, vy: Math.sin(a) * 10, life: 20, maxLife: 20, color: '#9b59b6', size: 10
+                    });
+                }
+                break;
+            case 'upgrade':
+                this.particles.push({ x, y, vx: 0, vy: -2, life: 50, maxLife: 50, color: '#ffffff', size: 50 });
+                break;
+        }
     }
 
     private plasmaBlast(x: number, y: number, angle: number, color: string) {
@@ -172,7 +279,7 @@ export class GameEngine {
             p.angle = Math.atan2(this.mouse.y - p.y, this.mouse.x - p.x);
 
             // Collision
-            Object.values(this.playersRef.current).forEach(other => {
+            Object.values(this.playersRef.current).forEach((other: Player) => {
                 if (other.id === myId) return;
                 const dist = Math.sqrt((p.x - other.x) ** 2 + (p.y - other.y) ** 2);
                 const minDist = p.radius + other.radius;
@@ -228,18 +335,22 @@ export class GameEngine {
             this.ctx.save();
             this.ctx.translate(p.x, p.y);
 
-            // Body
-            this.ctx.shadowBlur = 10;
-            this.ctx.shadowColor = "rgba(0,0,0,0.5)";
-            this.ctx.fillStyle = p.color;
-            this.ctx.beginPath();
-            this.ctx.arc(0, 5, p.radius, 0, Math.PI * 2);
-            this.ctx.fill();
-
-            // Head
-            this.ctx.beginPath();
-            this.ctx.arc(0, -8, p.radius * 0.6, 0, Math.PI * 2);
-            this.ctx.fill();
+            // Piece Image
+            const pieceName = p.piece || 'pawn';
+            const img = this.images[pieceName];
+            if (img && this.loadedImages >= this.totalImages) {
+                // Draw image centered, no rotation
+                // Add glow for team indication since we removed the circle
+                this.ctx.shadowBlur = 15;
+                this.ctx.shadowColor = p.color;
+                this.ctx.drawImage(img, -p.radius, -p.radius, p.radius * 2, p.radius * 2);
+            } else {
+                // Fallback
+                this.ctx.fillStyle = p.color;
+                this.ctx.beginPath();
+                this.ctx.arc(0, 0, p.radius, 0, Math.PI * 2);
+                this.ctx.fill();
+            }
 
             // Health Bar
             const hpWidth = 40;
@@ -249,7 +360,10 @@ export class GameEngine {
             this.ctx.fillStyle = "#333";
             this.ctx.fillRect(-hpWidth / 2, hpY, hpWidth, hpHeight);
 
-            const hpPercent = Math.max(0, p.hp) / 100;
+            // Normalize HP based on MaxHP if available, else 100
+            const maxHp = p.maxHp || 100;
+            const hpPercent = Math.max(0, p.hp) / maxHp;
+
             this.ctx.fillStyle = hpPercent > 0.5 ? "#2ecc71" : hpPercent > 0.2 ? "#f1c40f" : "#e74c3c";
             this.ctx.fillRect(-hpWidth / 2, hpY, hpWidth * hpPercent, hpHeight);
 
@@ -258,26 +372,53 @@ export class GameEngine {
                 this.ctx.fillStyle = "#fff";
                 this.ctx.font = "bold 12px Arial";
                 this.ctx.textAlign = "center";
-                this.ctx.fillText(`Kills: ${p.kills ?? 0}`, 0, hpY - 5);
+                this.ctx.fillText(`Kills: ${p.kills ?? 0} / ${this.getNextKillReq(p.piece)}`, 0, hpY - 5);
+
+                // Ability Cooldown
+                const abilityInfo = this.getAbilityInfo(p.piece);
+                if (abilityInfo) {
+                    const now = Date.now();
+                    const last = p.lastAbilityTime || 0;
+                    const elapsed = now - last;
+                    const remaining = Math.max(0, abilityInfo.cd - elapsed);
+                    const percent = Math.min(1, elapsed / abilityInfo.cd);
+
+                    // Draw Cooldown Bar underneath Health Bar
+                    const cdWidth = 30;
+                    const cdHeight = 4;
+                    const cdY = hpY + hpHeight + 2;
+
+                    this.ctx.fillStyle = "#555";
+                    this.ctx.fillRect(-cdWidth / 2, cdY, cdWidth, cdHeight);
+
+                    this.ctx.fillStyle = percent >= 1 ? "#3498db" : "#e67e22";
+                    this.ctx.fillRect(-cdWidth / 2, cdY, cdWidth * percent, cdHeight);
+                }
             }
 
             this.ctx.restore();
-
-            // Arrow
-            const arrowX = p.x + Math.cos(p.angle) * (p.radius + 20);
-            const arrowY = p.y + Math.sin(p.angle) * (p.radius + 20);
-
-            this.ctx.save();
-            this.ctx.translate(arrowX, arrowY);
-            this.ctx.rotate(p.angle);
-            this.ctx.fillStyle = p.id === this.localPlayerIdRef.current ? "#e74c3c" : "#ccc";
-            this.ctx.beginPath();
-            this.ctx.moveTo(10, 0);
-            this.ctx.lineTo(-5, 5);
-            this.ctx.lineTo(-5, -5);
-            this.ctx.fill();
-            this.ctx.restore();
         });
+    }
+
+    private getNextKillReq(piece: string): string {
+        switch (piece) {
+            case 'pawn': return '5';
+            case 'knight': return '6';
+            case 'bishop': return '7';
+            case 'rook': return '8';
+            case 'queen': return '10';
+            default: return '-';
+        }
+    }
+
+    private getAbilityInfo(piece: string) {
+        switch (piece) {
+            case 'knight': return { cd: 5000 };
+            case 'bishop': return { cd: 7000 };
+            case 'rook': return { cd: 10000 };
+            case 'queen': return { cd: 15000 };
+            default: return null;
+        }
     }
 
     private loop(timestamp: number = 0) {
@@ -286,7 +427,7 @@ export class GameEngine {
         const dt = timestamp - this.lastTime;
         this.lastTime = timestamp;
 
-        this.update(dt);
+        this.update();
         this.draw();
         // @ts-ignore
         this.animationFrameId = requestAnimationFrame((t) => this.loop(t));
