@@ -9,7 +9,7 @@ Players upgrade pieces, unlock unique abilities, and fight to become the **first
 
 ## 🖼️ Game Preview
 
-![Chess.io Preview](./public/chess-preview.PNG)
+![Chess.io Preview](./front-end/public/chess-preview.PNG)
 
 ---
 
