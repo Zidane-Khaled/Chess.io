@@ -2,6 +2,9 @@ import { Socket } from "socket.io-client";
 import * as React from 'react';
 import { Player, Particle } from "../types";
 
+const MAP_WIDTH = 3000;
+const MAP_HEIGHT = 3000;
+
 export class GameEngine {
     private canvas: HTMLCanvasElement;
     private ctx: CanvasRenderingContext2D;
@@ -13,6 +16,7 @@ export class GameEngine {
     private particles: Particle[] = [];
     private keys: { [key: string]: boolean } = { w: false, a: false, s: false, d: false };
     private mouse: { x: number; y: number } = { x: 0, y: 0 };
+    private zoomLevel: number = 1.6; // Configurable zoom level
     private animationFrameId: number | null = null;
     private isRunning: boolean = false;
     private lastTime: number = 0;
@@ -61,6 +65,7 @@ export class GameEngine {
         });
         window.addEventListener("keyup", (e) => this.keys[e.key.toLowerCase()] = false);
         window.addEventListener("mousemove", (e) => {
+            // Mouse position relative to canvas
             this.mouse.x = e.clientX;
             this.mouse.y = e.clientY;
         });
@@ -276,12 +281,22 @@ export class GameEngine {
             if (this.keys.a) p.x -= speed;
             if (this.keys.d) p.x += speed;
 
-            // Bounds
-            p.x = Math.max(p.radius, Math.min(this.canvas.width - p.radius, p.x));
-            p.y = Math.max(p.radius, Math.min(this.canvas.height - p.radius, p.y));
+            // Bounds (Map Size)
+            p.x = Math.max(p.radius, Math.min(MAP_WIDTH - p.radius, p.x));
+            p.y = Math.max(p.radius, Math.min(MAP_HEIGHT - p.radius, p.y));
 
-            // Aim
-            p.angle = Math.atan2(this.mouse.y - p.y, this.mouse.x - p.x);
+            // Mouse Aim
+            // With zoom and center pivot, world coordinates of mouse are:
+            // WorldX = (ScreenX - ScreenWidth/2) / Zoom + PlayerX
+            // WorldY = (ScreenY - ScreenHeight/2) / Zoom + PlayerY
+
+            const screenCX = this.canvas.width / 2;
+            const screenCY = this.canvas.height / 2;
+
+            const worldMouseX = (this.mouse.x - screenCX) / this.zoomLevel + p.x;
+            const worldMouseY = (this.mouse.y - screenCY) / this.zoomLevel + p.y;
+
+            p.angle = Math.atan2(worldMouseY - p.y, worldMouseX - p.x);
 
             // Collision
             Object.values(this.playersRef.current).forEach((other: Player) => {
@@ -318,8 +333,54 @@ export class GameEngine {
     }
 
     private draw() {
-        this.ctx.fillStyle = "#2c3e50";
+        // Clear screen
+        this.ctx.fillStyle = "#1e1e1e"; // Dark background for outside map
         this.ctx.fillRect(0, 0, this.canvas.width, this.canvas.height);
+
+        this.ctx.save();
+
+        // --- CAMERA TRANSFORM ---
+        // 1. Center the coordinate system on screen
+        this.ctx.translate(this.canvas.width / 2, this.canvas.height / 2);
+        // 2. Apply Zoom
+        this.ctx.scale(this.zoomLevel, this.zoomLevel);
+
+        // 3. Translate world so local player is at origin (0,0) of this new context
+        // We find local player first
+        const myId = this.localPlayerIdRef.current;
+        let camX = 0, camY = 0;
+        if (myId && this.playersRef.current[myId]) {
+            camX = this.playersRef.current[myId].x;
+            camY = this.playersRef.current[myId].y;
+        }
+
+        this.ctx.translate(-camX, -camY);
+
+        // Draw Map Background
+        this.ctx.fillStyle = "#2c3e50"; // Playable area color
+        this.ctx.fillRect(0, 0, MAP_WIDTH, MAP_HEIGHT);
+
+        // Draw Map Grid
+        this.ctx.strokeStyle = "rgba(255, 255, 255, 0.05)";
+        this.ctx.lineWidth = 1;
+        const gridSize = 100;
+        for (let x = 0; x <= MAP_WIDTH; x += gridSize) {
+            this.ctx.beginPath();
+            this.ctx.moveTo(x, 0);
+            this.ctx.lineTo(x, MAP_HEIGHT);
+            this.ctx.stroke();
+        }
+        for (let y = 0; y <= MAP_HEIGHT; y += gridSize) {
+            this.ctx.beginPath();
+            this.ctx.moveTo(0, y);
+            this.ctx.lineTo(MAP_WIDTH, y);
+            this.ctx.stroke();
+        }
+
+        // Draw Map Borders
+        this.ctx.strokeStyle = "#e74c3c";
+        this.ctx.lineWidth = 5;
+        this.ctx.strokeRect(0, 0, MAP_WIDTH, MAP_HEIGHT);
 
         // Particles
         this.particles.forEach(p => {
@@ -414,6 +475,9 @@ export class GameEngine {
 
             this.ctx.restore();
         });
+
+        // Restore camera translation
+        this.ctx.restore();
     }
 
     private getNextKillReq(piece: string): string {
