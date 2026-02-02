@@ -471,6 +471,14 @@ export class GameEngine {
                     this.ctx.fillStyle = percent >= 1 ? "#3498db" : "#e67e22";
                     this.ctx.fillRect(-cdWidth / 2, cdY, cdWidth * percent, cdHeight);
                 }
+            } else {
+                // Show bot indicator for other players
+                if (p.isBot) {
+                    this.ctx.fillStyle = "#95a5a6";
+                    this.ctx.font = "bold 10px Arial";
+                    this.ctx.textAlign = "center";
+                    this.ctx.fillText("BOT", 0, hpY - 5);
+                }
             }
 
             this.ctx.restore();

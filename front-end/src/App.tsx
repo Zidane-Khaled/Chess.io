@@ -10,6 +10,7 @@ const App = () => {
         localPlayerIdRef,
         roomIdRef,
         gameState,
+        lobbyData,
         joinGame
     } = useGameSocket();
 
@@ -34,7 +35,7 @@ const App = () => {
         return () => {
             engineRef.current?.destroy();
         };
-    }, [gameState]); // Re-run when game state changes (Menu -> Waiting -> Playing)
+    }, [gameState]);
 
     return (
         <div style={{ width: "100%", height: "100vh", overflow: "hidden", position: "relative" }}>
@@ -45,7 +46,8 @@ const App = () => {
                     display: "flex", justifyContent: "center", alignItems: "center",
                     backgroundColor: "#2c3e50", flexDirection: "column", gap: "20px"
                 }}>
-                    <h1 style={{ color: "white", fontFamily: "sans-serif" }}>CHESS.IO</h1>
+                    <h1 style={{ color: "white", fontFamily: "sans-serif", fontSize: "48px", marginBottom: "10px" }}>CHESS.IO</h1>
+                    <p style={{ color: "#bdc3c7", fontFamily: "sans-serif", fontSize: "18px" }}>Battle Royale - 20 Players</p>
                     <button
                         onClick={joinGame}
                         style={{
@@ -53,19 +55,40 @@ const App = () => {
                             backgroundColor: "#27ae60", color: "white", border: "none", borderRadius: "8px"
                         }}
                     >
-                        Start Game
+                        Join Game
                     </button>
                 </div>
             )}
 
-            {gameState === 'WAITING' && (
+            {gameState === 'LOBBY' && lobbyData && (
                 <div style={{
                     position: "absolute",
                     top: 0, left: 0, width: "100%", height: "100%",
                     display: "flex", justifyContent: "center", alignItems: "center",
-                    backgroundColor: "rgba(44, 62, 80, 0.9)", color: "white", fontFamily: "sans-serif"
+                    backgroundColor: "rgba(44, 62, 80, 0.95)", color: "white", fontFamily: "sans-serif",
+                    flexDirection: "column", gap: "30px"
                 }}>
-                    <h2>Waiting for opponent...</h2>
+                    <h2 style={{ fontSize: "36px", marginBottom: "10px" }}>Waiting in Lobby</h2>
+
+                    <div style={{ fontSize: "24px", color: "#3498db" }}>
+                        Players: {lobbyData.playerCount} / {lobbyData.maxPlayers}
+                    </div>
+
+                    <div style={{ fontSize: "48px", fontWeight: "bold", color: lobbyData.countdown <= 10 ? "#e74c3c" : "#2ecc71" }}>
+                        {lobbyData.countdown}s
+                    </div>
+
+                    <div style={{ fontSize: "16px", color: "#95a5a6" }}>
+                        {lobbyData.countdown > 0
+                            ? `Game starts in ${lobbyData.countdown} seconds...`
+                            : "Starting game..."}
+                    </div>
+
+                    <div style={{ fontSize: "14px", color: "#7f8c8d", marginTop: "20px" }}>
+                        {lobbyData.maxPlayers - lobbyData.playerCount > 0
+                            ? `${lobbyData.maxPlayers - lobbyData.playerCount} bot(s) will fill the remaining slots`
+                            : "Lobby is full!"}
+                    </div>
                 </div>
             )}
 

@@ -1,11 +1,12 @@
 import { useRef, useEffect, useState } from 'react';
 import { io, Socket } from 'socket.io-client';
-import { GameStartData, GameState, Player, PlayerUpdateData } from '../types';
+import { GameStartData, GameState, Player, LobbyData } from '../types';
 
 const SOCKET_URL = "http://localhost:3001";
 
 export const useGameSocket = () => {
     const [gameState, setGameState] = useState<GameState>('MENU');
+    const [lobbyData, setLobbyData] = useState<LobbyData | null>(null);
     const socketRef = useRef<Socket | null>(null);
     const roomIdRef = useRef<string | null>(null);
     const localPlayerIdRef = useRef<string | null>(null);
@@ -22,8 +23,15 @@ export const useGameSocket = () => {
             console.log("Connected to server");
         });
 
-        socket.on("waiting", () => {
-            setGameState("WAITING");
+        socket.on("lobby_update", (data: LobbyData) => {
+            console.log("Lobby update:", data);
+            setLobbyData(data);
+            setGameState("LOBBY");
+        });
+
+        socket.on("lobby_full", () => {
+            alert("Lobby is full! Please try again later.");
+            setGameState("MENU");
         });
 
         socket.on("game_start", (data: GameStartData) => {
@@ -31,51 +39,44 @@ export const useGameSocket = () => {
             localPlayerIdRef.current = data.playerId;
             roomIdRef.current = data.roomId;
 
-            // Initialize self
-            playersRef.current[data.playerId] = {
-                id: data.playerId,
-                x: data.x,
-                y: data.y,
-                radius: 15,
-                color: data.color,
-                angle: 0,
-                hp: data.hp,
-                maxHp: data.maxHp,
-                kills: data.kills,
-                piece: data.piece,
-                lastAbilityTime: data.lastAbilityTime
-            };
+            // Clear previous players
+            playersRef.current = {};
 
-            // Initialize opponent
-            playersRef.current[data.opponentId] = {
-                id: data.opponentId,
-                x: -100, // offscreen
-                y: -100,
-                radius: 15,
-                color: data.color === '#e74c3c' ? '#3498db' : '#e74c3c', // Logic handled by server usually, but keeping fallback
-                angle: 0,
-                hp: 100, // Fallback, will be updated by player_update immediately, but ideally we should get this from start data if opponent is e.g. a King
-                maxHp: 100,
-                kills: 0,
-                piece: 'pawn',
-                lastAbilityTime: 0
-            };
+            // Initialize all players from server data
+            data.allPlayers.forEach(playerData => {
+                playersRef.current[playerData.id] = {
+                    id: playerData.id,
+                    x: playerData.x,
+                    y: playerData.y,
+                    radius: 25,
+                    color: playerData.color,
+                    angle: 0,
+                    hp: playerData.hp,
+                    maxHp: playerData.maxHp,
+                    kills: playerData.kills,
+                    piece: playerData.piece,
+                    lastAbilityTime: 0,
+                    isBot: playerData.isBot
+                };
+            });
 
             setGameState("PLAYING");
+            setLobbyData(null);
         });
 
-        socket.on("player_update", (data: PlayerUpdateData) => {
+        socket.on("player_update", (data: any) => {
             if (playersRef.current[data.id]) {
                 const p = playersRef.current[data.id];
                 p.x = data.x;
                 p.y = data.y;
                 p.angle = data.angle;
+                p.hp = data.hp;
+                p.maxHp = data.maxHp;
+                p.kills = data.kills;
+                p.piece = data.piece;
+                p.lastAbilityTime = data.lastAbilityTime;
             }
         });
-
-        // 'shoot' event is technically visual, can be handled by engine listeners directly or piped through here.
-        // For decoupled design, we'll let the engine attach its own specific listener if needed, 
-        // OR we expose a callback registry. For simplicity, we expose the socket.
 
         return () => {
             socket.disconnect();
@@ -92,6 +93,7 @@ export const useGameSocket = () => {
         localPlayerIdRef,
         roomIdRef,
         gameState,
+        lobbyData,
         joinGame
     };
 };

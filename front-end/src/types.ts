@@ -14,6 +14,7 @@ export interface Player {
     piece: PieceType;
     lastAbilityTime: number;
     jumpStartTime?: number;
+    isBot?: boolean;
 }
 
 export interface Particle {
@@ -27,20 +28,20 @@ export interface Particle {
     size: number;
 }
 
-export type GameState = 'MENU' | 'WAITING' | 'PLAYING' | 'GAME_OVER';
+export type GameState = 'MENU' | 'LOBBY' | 'PLAYING' | 'GAME_OVER';
+
+export interface LobbyData {
+    playerCount: number;
+    maxPlayers: number;
+    countdown: number;
+    players: string[];
+}
 
 export interface GameStartData {
     roomId: string;
     playerId: string;
-    opponentId: string;
-    x: number;
-    y: number;
-    color: string;
-    hp: number;
-    maxHp: number;
-    kills: number;
-    piece: PieceType;
-    lastAbilityTime: number;
+    playerData: Player;
+    allPlayers: Player[];
 }
 
 export interface PlayerUpdateData {

@@ -2,6 +2,7 @@ const express = require('express');
 const http = require('http');
 const { Server } = require('socket.io');
 const cors = require('cors');
+const BotPlayer = require('./BotPlayer');
 
 const app = express();
 app.use(cors());
@@ -14,10 +15,14 @@ const io = new Server(server, {
     }
 });
 
+// Configurable player count
+const MAX_PLAYERS = 20;
+const LOBBY_COUNTDOWN = 60; // 60 seconds
+
 const MAX_HP = 100;
 const DAMAGE = 20;
-const CANVAS_WIDTH = 800;
-const CANVAS_HEIGHT = 600;
+const CANVAS_WIDTH = 3000;
+const CANVAS_HEIGHT = 3000;
 
 // Piece Configuration
 const PIECE_CONFIG = {
@@ -32,73 +37,208 @@ const PIECE_CONFIG = {
 // Game state storage
 const games = {};
 
-let waitingPlayer = null;
+// Lobby system
+let currentLobby = null;
+
+class Lobby {
+    constructor() {
+        this.players = [];
+        this.countdown = LOBBY_COUNTDOWN;
+        this.timerId = null;
+        this.roomId = `room_${Date.now()}`;
+        this.startTime = Date.now();
+    }
+
+    addPlayer(socket) {
+        if (this.players.length >= MAX_PLAYERS) return false;
+
+        this.players.push(socket);
+        socket.join(this.roomId);
+
+        // Broadcast lobby update to all players
+        this.broadcastLobbyStatus();
+
+        // Start timer if first player
+        if (this.players.length === 1) {
+            this.startCountdown();
+        }
+
+        // Start game immediately if lobby is full
+        if (this.players.length === MAX_PLAYERS) {
+            this.startGame();
+        }
+
+        return true;
+    }
+
+    broadcastLobbyStatus() {
+        io.to(this.roomId).emit('lobby_update', {
+            playerCount: this.players.length,
+            maxPlayers: MAX_PLAYERS,
+            countdown: this.countdown,
+            players: this.players.map(p => p.id)
+        });
+    }
+
+    startCountdown() {
+        this.timerId = setInterval(() => {
+            this.countdown--;
+            this.broadcastLobbyStatus();
+
+            if (this.countdown <= 0) {
+                this.startGame();
+            }
+        }, 1000);
+    }
+
+    startGame() {
+        if (this.timerId) {
+            clearInterval(this.timerId);
+            this.timerId = null;
+        }
+
+        // Fill remaining slots with bots
+        const numBots = MAX_PLAYERS - this.players.length;
+        const bots = [];
+
+        for (let i = 0; i < numBots; i++) {
+            const botId = `bot_${i}_${Date.now()}`;
+            const spawnX = 100 + Math.random() * (CANVAS_WIDTH - 200);
+            const spawnY = 100 + Math.random() * (CANVAS_HEIGHT - 200);
+
+            const bot = new BotPlayer(botId, spawnX, spawnY, CANVAS_WIDTH, CANVAS_HEIGHT);
+            bots.push(bot);
+        }
+
+        // Initialize game state
+        const pawnStats = PIECE_CONFIG['pawn'];
+        const gameState = {
+            players: {},
+            bots: bots,
+            startTime: Date.now()
+        };
+
+        // Assign colors
+        const colors = [
+            '#3498db', '#e74c3c', '#2ecc71', '#f39c12', '#9b59b6',
+            '#1abc9c', '#e67e22', '#34495e', '#16a085', '#27ae60',
+            '#2980b9', '#8e44ad', '#2c3e50', '#f1c40f', '#e74c3c',
+            '#95a5a6', '#d35400', '#c0392b', '#bdc3c7', '#7f8c8d'
+        ];
+
+        // Add human players
+        this.players.forEach((socket, index) => {
+            const spawnX = 100 + Math.random() * (CANVAS_WIDTH - 200);
+            const spawnY = 100 + Math.random() * (CANVAS_HEIGHT - 200);
+
+            gameState.players[socket.id] = {
+                id: socket.id,
+                x: spawnX,
+                y: spawnY,
+                angle: 0,
+                color: colors[index % colors.length],
+                hp: pawnStats.hp,
+                maxHp: pawnStats.hp,
+                kills: 0,
+                piece: 'pawn',
+                abilityReady: true,
+                lastAbilityTime: 0,
+                invulnerableUntil: 0,
+                isBot: false
+            };
+        });
+
+        // Add bots to player list
+        bots.forEach(bot => {
+            gameState.players[bot.id] = bot;
+        });
+
+        games[this.roomId] = gameState;
+
+        // Send game start to all human players
+        this.players.forEach(socket => {
+            const playerData = gameState.players[socket.id];
+            const allPlayers = Object.values(gameState.players).map(p => ({
+                id: p.id,
+                x: p.x,
+                y: p.y,
+                color: p.color,
+                hp: p.hp,
+                maxHp: p.maxHp,
+                kills: p.kills,
+                piece: p.piece,
+                isBot: p.isBot || false
+            }));
+
+            socket.emit('game_start', {
+                roomId: this.roomId,
+                playerId: socket.id,
+                playerData: playerData,
+                allPlayers: allPlayers
+            });
+        });
+
+        // Start bot AI loop
+        this.startBotAI();
+
+        console.log(`Game started in ${this.roomId} with ${this.players.length} humans and ${numBots} bots`);
+
+        // Reset lobby for next game
+        currentLobby = null;
+    }
+
+    startBotAI() {
+        const game = games[this.roomId];
+        if (!game) return;
+
+        // Update bots every 100ms
+        const botInterval = setInterval(() => {
+            const gameState = games[this.roomId];
+            if (!gameState) {
+                clearInterval(botInterval);
+                return;
+            }
+
+            gameState.bots.forEach(bot => {
+                if (bot.hp > 0) {
+                    bot.update(gameState, this.roomId, io, checkLinearHit, checkAreaHit);
+                }
+            });
+        }, 100);
+
+        // Store interval for cleanup
+        game.botInterval = botInterval;
+    }
+
+    removePlayer(socket) {
+        const index = this.players.indexOf(socket);
+        if (index !== -1) {
+            this.players.splice(index, 1);
+            socket.leave(this.roomId);
+            this.broadcastLobbyStatus();
+
+            // Cancel lobby if no players left
+            if (this.players.length === 0) {
+                if (this.timerId) clearInterval(this.timerId);
+                currentLobby = null;
+            }
+        }
+    }
+}
 
 io.on('connection', (socket) => {
     console.log('User connected:', socket.id);
 
     socket.on('join_game', () => {
-        if (waitingPlayer && waitingPlayer.id !== socket.id) {
-            const opponent = waitingPlayer;
-            waitingPlayer = null;
+        // Create lobby if none exists
+        if (!currentLobby) {
+            currentLobby = new Lobby();
+        }
 
-            const roomId = `room_${opponent.id}_${socket.id}`;
-            socket.join(roomId);
-            opponent.join(roomId);
-
-            // Initialize game state with Pawn stats
-            const pawnStats = PIECE_CONFIG['pawn'];
-            games[roomId] = {
-                players: {
-                    [opponent.id]: {
-                        id: opponent.id,
-                        x: 100, y: 100,
-                        angle: 0,
-                        color: '#3498db',
-                        hp: pawnStats.hp,
-                        maxHp: pawnStats.hp,
-                        kills: 0,
-                        piece: 'pawn',
-                        abilityReady: true,
-                        lastAbilityTime: 0,
-                        invulnerableUntil: 0
-                    },
-                    [socket.id]: {
-                        id: socket.id,
-                        x: 600, y: 500,
-                        angle: Math.PI,
-                        color: '#e74c3c',
-                        hp: pawnStats.hp,
-                        maxHp: pawnStats.hp,
-                        kills: 0,
-                        piece: 'pawn',
-                        abilityReady: true,
-                        lastAbilityTime: 0,
-                        invulnerableUntil: 0
-                    }
-                }
-            };
-
-            // Send initial state to players
-            io.to(opponent.id).emit('game_start', {
-                roomId,
-                playerId: opponent.id,
-                opponentId: socket.id,
-                ...games[roomId].players[opponent.id]
-            });
-
-            io.to(socket.id).emit('game_start', {
-                roomId,
-                playerId: socket.id,
-                opponentId: opponent.id,
-                ...games[roomId].players[socket.id]
-            });
-
-            console.log(`Game started in ${roomId}`);
-        } else {
-            waitingPlayer = socket;
-            socket.emit('waiting');
-            console.log('Player waiting:', socket.id);
+        // Add player to lobby
+        const joined = currentLobby.addPlayer(socket);
+        if (!joined) {
+            socket.emit('lobby_full');
         }
     });
 
@@ -107,12 +247,11 @@ io.on('connection', (socket) => {
         if (!game || !game.players[socket.id]) return;
 
         const p = game.players[socket.id];
-        // Validate move
         p.x = data.x;
         p.y = data.y;
         p.angle = data.angle;
 
-        // Broadcast to opponent with authoritative data
+        // Broadcast to all players in room
         socket.to(data.roomId).emit('player_update', {
             id: socket.id,
             x: p.x,
@@ -136,24 +275,23 @@ io.on('connection', (socket) => {
         if (!config.ability) return;
 
         const now = Date.now();
-        if (now - p.lastAbilityTime < config.abilityCd) return; // Cooldown
+        if (now - p.lastAbilityTime < config.abilityCd) return;
 
         p.lastAbilityTime = now;
 
         switch (p.piece) {
-            case 'knight': // Jump (Invulnerable)
+            case 'knight':
                 p.invulnerableUntil = now + 1500;
                 io.in(data.roomId).emit('ability_effect', { id: p.id, type: 'jump', x: p.x, y: p.y });
                 break;
-            case 'bishop': // Laser
+            case 'bishop':
                 io.in(data.roomId).emit('ability_effect', { id: p.id, type: 'laser', x: p.x, y: p.y, angle: p.angle });
                 checkLinearHit(game, p, 40, 600, data.roomId);
                 break;
-            case 'rook': // Dash (Damage path)
+            case 'rook':
                 const dashDist = 300;
                 p.x += Math.cos(p.angle) * dashDist;
                 p.y += Math.sin(p.angle) * dashDist;
-                // Clamp bounds
                 p.x = Math.max(50, Math.min(CANVAS_WIDTH - 50, p.x));
                 p.y = Math.max(50, Math.min(CANVAS_HEIGHT - 50, p.y));
 
@@ -161,13 +299,12 @@ io.on('connection', (socket) => {
                 io.in(data.roomId).emit('player_teleport', { id: p.id, x: p.x, y: p.y });
                 checkLinearHit(game, p, 50, dashDist, data.roomId);
                 break;
-            case 'queen': // Multi-attack
+            case 'queen':
                 io.in(data.roomId).emit('ability_effect', { id: p.id, type: 'multi', x: p.x, y: p.y });
                 checkAreaHit(game, p, 200, 40, data.roomId);
                 break;
         }
 
-        // Broadcast stats update (cooldown)
         io.to(data.roomId).emit('player_update', {
             id: socket.id,
             x: p.x, y: p.y, angle: p.angle,
@@ -183,15 +320,12 @@ io.on('connection', (socket) => {
         const attacker = game.players[socket.id];
         if (!attacker) return;
 
-        // Prevent attack while jumping/invulnerable
         if (Date.now() < attacker.invulnerableUntil) return;
 
         const config = PIECE_CONFIG[attacker.piece];
-        // Dynamic range/stats based on piece
         let attackRange = attacker.piece === 'bishop' || attacker.piece === 'queen' ? 400 : 100;
         const attackAngle = Math.PI / 4;
 
-        // Visual effect
         io.in(data.roomId).emit('attack_effect', {
             x: attacker.x,
             y: attacker.y,
@@ -232,16 +366,31 @@ io.on('connection', (socket) => {
 
     socket.on('disconnect', () => {
         console.log('User disconnected:', socket.id);
-        if (waitingPlayer === socket) {
-            waitingPlayer = null;
+
+        // Remove from lobby if waiting
+        if (currentLobby) {
+            currentLobby.removePlayer(socket);
         }
-        // Cleanup game state if needed, though for now we just leave it
-        // Ideally we delete games[room] when empty
+
+        // Remove from active games
+        Object.keys(games).forEach(roomId => {
+            const game = games[roomId];
+            if (game.players[socket.id]) {
+                delete game.players[socket.id];
+
+                // Check if game should end
+                const humanPlayers = Object.values(game.players).filter(p => !p.isBot);
+                if (humanPlayers.length === 0) {
+                    // Clean up game
+                    if (game.botInterval) clearInterval(game.botInterval);
+                    delete games[roomId];
+                }
+            }
+        });
     });
 });
 
 function handleKill(game, killer, victim, roomId) {
-    // Stats update
     killer.kills += 1;
     victim.hp = PIECE_CONFIG[victim.piece].hp;
 
@@ -252,7 +401,7 @@ function handleKill(game, killer, victim, roomId) {
         const newConfig = PIECE_CONFIG[killer.piece];
         killer.hp = newConfig.hp;
         killer.maxHp = newConfig.hp;
-        killer.kills = 0; // Reset kills for next rank
+        killer.kills = 0;
 
         io.in(roomId).emit('upgrade', {
             id: killer.id,
@@ -261,25 +410,32 @@ function handleKill(game, killer, victim, roomId) {
             maxHp: killer.maxHp
         });
 
-        // Win Condition
+        // Win Condition - check if only one player left at King level
         if (killer.piece === 'king') {
             io.in(roomId).emit('game_over', { winnerId: killer.id });
+            // Clean up
+            if (game.botInterval) clearInterval(game.botInterval);
+            delete games[roomId];
             return;
         }
     }
 
-    // Respawn Victim
+    // Respawn victim
     let safe = false, attempts = 0;
-    while (!safe && attempts < 10) {
-        victim.x = 50 + Math.random() * (CANVAS_WIDTH - 100);
-        victim.y = 50 + Math.random() * (CANVAS_HEIGHT - 100);
-        const other = Object.values(game.players).find(p => p.id !== victim.id);
-        const d = Math.sqrt((victim.x - other.x) ** 2 + (victim.y - other.y) ** 2);
-        if (d > 150) safe = true;
+    while (!safe && attempts < 20) {
+        victim.x = 100 + Math.random() * (CANVAS_WIDTH - 200);
+        victim.y = 100 + Math.random() * (CANVAS_HEIGHT - 200);
+
+        // Check distance from all other players
+        safe = true;
+        Object.values(game.players).forEach(other => {
+            if (other.id === victim.id) return;
+            const d = Math.sqrt((victim.x - other.x) ** 2 + (victim.y - other.y) ** 2);
+            if (d < 200) safe = false;
+        });
         attempts++;
     }
 
-    // Broad Cast events
     io.in(roomId).emit('player_respawn', {
         id: victim.id,
         x: victim.x,
@@ -311,7 +467,7 @@ function checkLinearHit(game, attacker, damage, range, roomId, instantKill = fal
             const py = attacker.y + dot * vy;
 
             const dist = Math.sqrt((target.x - px) ** 2 + (target.y - py) ** 2);
-            if (dist < 20) { // Approx radius
+            if (dist < 20) {
                 const dmg = instantKill ? target.hp : damage;
                 target.hp -= dmg;
                 if (target.hp <= 0) handleKill(game, attacker, target, roomId);
@@ -338,4 +494,5 @@ function checkAreaHit(game, attacker, range, damage, roomId) {
 const PORT = 3001;
 server.listen(PORT, () => {
     console.log(`Server running on port ${PORT}`);
+    console.log(`MAX_PLAYERS: ${MAX_PLAYERS}, LOBBY_COUNTDOWN: ${LOBBY_COUNTDOWN}s`);
 });
