@@ -14,6 +14,8 @@ export const useGameSocket = () => {
     // Direct refs for game engine to consume without re-renders
     const playersRef = useRef<{ [id: string]: Player }>({});
 
+    const [isConnected, setIsConnected] = useState<boolean>(false);
+
     useEffect(() => {
         socketRef.current = io(SOCKET_URL);
 
@@ -21,6 +23,17 @@ export const useGameSocket = () => {
 
         socket.on("connect", () => {
             console.log("Connected to server");
+            setIsConnected(true);
+        });
+
+        socket.on("disconnect", () => {
+            console.log("Disconnected from server");
+            setIsConnected(false);
+        });
+
+        socket.on("connect_error", (err) => {
+            console.log("Connection error", err);
+            setIsConnected(false);
         });
 
         socket.on("lobby_update", (data: LobbyData) => {
@@ -94,6 +107,7 @@ export const useGameSocket = () => {
         roomIdRef,
         gameState,
         lobbyData,
-        joinGame
+        joinGame,
+        isConnected
     };
 };

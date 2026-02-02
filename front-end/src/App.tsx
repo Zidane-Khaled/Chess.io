@@ -1,4 +1,5 @@
-import React, { useEffect, useRef } from "react";
+import React, { useEffect, useRef, useState } from "react";
+import "./App.css";
 import { useGameSocket } from "./hooks/useGameSocket";
 import { GameEngine } from "./game/GameEngine";
 
@@ -11,8 +12,11 @@ const App = () => {
         roomIdRef,
         gameState,
         lobbyData,
-        joinGame
+        joinGame,
+        isConnected
     } = useGameSocket();
+
+    const [showComingSoon, setShowComingSoon] = useState(false);
 
     const engineRef = useRef<GameEngine | null>(null);
 
@@ -40,23 +44,43 @@ const App = () => {
     return (
         <div style={{ width: "100%", height: "100vh", overflow: "hidden", position: "relative" }}>
             {gameState === 'MENU' && (
-                <div style={{
-                    position: "absolute",
-                    top: 0, left: 0, width: "100%", height: "100%",
-                    display: "flex", justifyContent: "center", alignItems: "center",
-                    backgroundColor: "#2c3e50", flexDirection: "column", gap: "20px"
-                }}>
-                    <h1 style={{ color: "white", fontFamily: "sans-serif", fontSize: "48px", marginBottom: "10px" }}>CHESS.IO</h1>
-                    <p style={{ color: "#bdc3c7", fontFamily: "sans-serif", fontSize: "18px" }}>Battle Royale - 20 Players</p>
-                    <button
-                        onClick={joinGame}
-                        style={{
-                            padding: "15px 40px", fontSize: "24px", cursor: "pointer",
-                            backgroundColor: "#27ae60", color: "white", border: "none", borderRadius: "8px"
-                        }}
-                    >
-                        Join Game
-                    </button>
+                <div className="start-page">
+                    <h1 className="title">CHESS.IO</h1>
+                    <p className="subtitle">Beta version – works on local server</p>
+
+                    <div className="btn-container">
+                        <button
+                            className="primary-btn"
+                            onClick={joinGame}
+                            disabled={!isConnected}
+                        >
+                            {isConnected ? "Start Play" : "Server Offline"}
+                        </button>
+                        {!isConnected && <div className="error-text">Cannot connect to backend server</div>}
+
+                        <button
+                            className="secondary-btn"
+                            onClick={() => setShowComingSoon(true)}
+                        >
+                            What’s Coming Next
+                        </button>
+                    </div>
+
+                    <div className="author">Created by Zidane Khaled</div>
+
+                    {showComingSoon && (
+                        <div className="modal-overlay" onClick={() => setShowComingSoon(false)}>
+                            <div className="modal-content" onClick={e => e.stopPropagation()}>
+                                <button className="close-btn" onClick={() => setShowComingSoon(false)}>×</button>
+                                <h2 className="modal-title">Future Features</h2>
+                                <ul className="feature-list">
+                                    <li>Create accounts & Play Online</li>
+                                    <li>Team vs Team Matches</li>
+                                    <li>Improved Animations & Abilities</li>
+                                </ul>
+                            </div>
+                        </div>
+                    )}
                 </div>
             )}
 
@@ -78,11 +102,6 @@ const App = () => {
                         {lobbyData.countdown}s
                     </div>
 
-                    <div style={{ fontSize: "16px", color: "#95a5a6" }}>
-                        {lobbyData.countdown > 0
-                            ? `Game starts in ${lobbyData.countdown} seconds...`
-                            : "Starting game..."}
-                    </div>
 
                     <div style={{ fontSize: "14px", color: "#7f8c8d", marginTop: "20px" }}>
                         {lobbyData.maxPlayers - lobbyData.playerCount > 0
