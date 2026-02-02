@@ -199,7 +199,7 @@ class Lobby {
 
             gameState.bots.forEach(bot => {
                 if (bot.hp > 0) {
-                    bot.update(gameState, this.roomId, io, checkLinearHit, checkAreaHit);
+                    bot.update(gameState, this.roomId, io, checkLinearHit, checkAreaHit, handleKill);
                 }
             });
         }, 100);
@@ -281,6 +281,14 @@ io.on('connection', (socket) => {
             case 'knight':
                 p.invulnerableUntil = now + 1500;
                 io.in(data.roomId).emit('ability_effect', { id: p.id, type: 'jump', x: p.x, y: p.y });
+
+                // Deal AOE damage when landing (1.5s delay)
+                setTimeout(() => {
+                    const currentGame = games[data.roomId];
+                    if (currentGame && currentGame.players[socket.id]) {
+                        checkAreaHit(currentGame, p, 200, 40, data.roomId);
+                    }
+                }, 1500);
                 break;
             case 'bishop':
                 io.in(data.roomId).emit('ability_effect', { id: p.id, type: 'laser', x: p.x, y: p.y, angle: p.angle });

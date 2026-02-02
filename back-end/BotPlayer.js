@@ -90,7 +90,7 @@ class BotPlayer {
     /**
      * Attempt to attack the target if in range
      */
-    tryAttack(game, target, roomId, io, checkLinearHit, checkAreaHit) {
+    tryAttack(game, target, roomId, io, checkLinearHit, checkAreaHit, handleKill) {
         if (!target) return false;
 
         const now = Date.now();
@@ -123,6 +123,36 @@ class BotPlayer {
                     type: 'normal'
                 });
 
+                // Deal damage to all targets in range
+                Object.values(game.players).forEach(potentialTarget => {
+                    if (potentialTarget.id === this.id) return;
+                    if (Date.now() < potentialTarget.invulnerableUntil) return;
+
+                    const tdx = potentialTarget.x - this.x;
+                    const tdy = potentialTarget.y - this.y;
+                    const tdist = Math.sqrt(tdx * tdx + tdy * tdy);
+
+                    if (tdist <= attackRange) {
+                        const angleToTgt = Math.atan2(tdy, tdx);
+                        let tAngleDiff = angleToTgt - this.angle;
+                        while (tAngleDiff > Math.PI) tAngleDiff -= 2 * Math.PI;
+                        while (tAngleDiff < -Math.PI) tAngleDiff += 2 * Math.PI;
+
+                        if (Math.abs(tAngleDiff) < attackAngle / 2) {
+                            potentialTarget.hp -= config.dmg;
+
+                            if (potentialTarget.hp <= 0) {
+                                handleKill(game, this, potentialTarget, roomId);
+                            } else {
+                                io.in(roomId).emit('health_update', {
+                                    id: potentialTarget.id,
+                                    hp: potentialTarget.hp
+                                });
+                            }
+                        }
+                    }
+                });
+
                 return true; // Attack performed
             }
         }
@@ -149,6 +179,13 @@ class BotPlayer {
             case 'knight': // Jump (Invulnerable)
                 this.invulnerableUntil = now + 1500;
                 io.in(roomId).emit('ability_effect', { id: this.id, type: 'jump', x: this.x, y: this.y });
+
+                // Deal AOE damage when landing (1.5s delay)
+                setTimeout(() => {
+                    if (game.players[this.id]) { // Ensure bot is still in game
+                        checkAreaHit(game, this, 200, 40, roomId);
+                    }
+                }, 1500);
                 break;
             case 'bishop': // Laser
                 io.in(roomId).emit('ability_effect', { id: this.id, type: 'laser', x: this.x, y: this.y, angle: this.angle });
@@ -185,7 +222,7 @@ class BotPlayer {
     /**
      * Main AI update loop
      */
-    update(game, roomId, io, checkLinearHit, checkAreaHit) {
+    update(game, roomId, io, checkLinearHit, checkAreaHit, handleKill) {
         const now = Date.now();
         if (now - this.lastUpdateTime < this.updateInterval) return;
         this.lastUpdateTime = now;
@@ -201,7 +238,7 @@ class BotPlayer {
         this.tryAbility(game, roomId, io, checkLinearHit, checkAreaHit);
 
         // Try to attack
-        this.tryAttack(game, target, roomId, io, checkLinearHit, checkAreaHit);
+        this.tryAttack(game, target, roomId, io, checkLinearHit, checkAreaHit, handleKill);
 
         // Broadcast position update
         io.to(roomId).emit('player_update', {
