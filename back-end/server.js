@@ -19,10 +19,8 @@ const io = new Server(server, {
 const MAX_PLAYERS = 20;
 const LOBBY_COUNTDOWN = 60; // 60 seconds
 
-const MAX_HP = 100;
-const DAMAGE = 20;
-const CANVAS_WIDTH = 3000;
-const CANVAS_HEIGHT = 3000;
+const CANVAS_WIDTH = 1500;
+const CANVAS_HEIGHT = 1500;
 
 // Piece Configuration
 const PIECE_CONFIG = {
