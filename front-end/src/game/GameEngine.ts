@@ -24,13 +24,15 @@ export class GameEngine {
     private images: { [key: string]: HTMLImageElement } = {};
     private loadedImages = 0;
     private totalImages = 6;
+    private onPlayerDeath?: () => void;
 
     constructor(
         canvas: HTMLCanvasElement,
         socket: Socket,
         playersRef: React.MutableRefObject<{ [id: string]: Player }>,
         localPlayerIdRef: React.MutableRefObject<string | null>,
-        roomIdRef: React.MutableRefObject<string | null>
+        roomIdRef: React.MutableRefObject<string | null>,
+        onPlayerDeath?: () => void
     ) {
         this.canvas = canvas;
         this.ctx = canvas.getContext("2d")!;
@@ -38,6 +40,7 @@ export class GameEngine {
         this.playersRef = playersRef;
         this.roomIdRef = roomIdRef;
         this.localPlayerIdRef = localPlayerIdRef;
+        this.onPlayerDeath = onPlayerDeath;
 
         this.resize();
         this.bindInput();
@@ -117,13 +120,20 @@ export class GameEngine {
             }
         });
 
-        this.socket.on("player_respawn", (data: { id: string, x: number, y: number, hp: number, kills: number }) => {
+        this.socket.on("player_respawn", (data: { id: string, x: number, y: number, hp: number, maxHp: number, kills: number, piece: string }) => {
             if (this.playersRef.current[data.id]) {
                 const p = this.playersRef.current[data.id];
                 p.x = data.x;
                 p.y = data.y;
                 p.hp = data.hp;
+                p.maxHp = data.maxHp;
                 p.kills = data.kills;
+                p.piece = data.piece;
+
+                // Check if it's the local player who died/respawned
+                if (data.id === this.localPlayerIdRef.current) {
+                    if (this.onPlayerDeath) this.onPlayerDeath();
+                }
             }
         });
 

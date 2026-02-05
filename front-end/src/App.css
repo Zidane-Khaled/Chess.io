@@ -262,3 +262,32 @@ body {
         transform: translateX(5px);
     }
 }
+
+.death-overlay {
+    position: fixed;
+    top: 50%;
+    left: 50%;
+    transform: translate(-50%, -50%);
+    pointer-events: none;
+    z-index: 2000;
+    text-align: center;
+    animation: fadeInOut 3s ease-in-out forwards;
+}
+
+.death-text {
+    font-size: 100px;
+    font-weight: 900;
+    color: #e74c3c;
+    text-transform: uppercase;
+    text-shadow: 0 0 20px rgba(231, 76, 60, 0.8), 0 0 50px rgba(0, 0, 0, 0.8);
+    margin: 0;
+    letter-spacing: 5px;
+}
+
+@keyframes fadeInOut {
+    0% { opacity: 0; transform: translate(-50%, -40%) scale(0.8); }
+    15% { opacity: 1; transform: translate(-50%, -50%) scale(1.1); }
+    30% { transform: translate(-50%, -50%) scale(1); }
+    85% { opacity: 1; filter: blur(0px); }
+    100% { opacity: 0; filter: blur(10px); }
+}

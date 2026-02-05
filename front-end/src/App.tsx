@@ -18,8 +18,21 @@ const App = () => {
 
     const [showComingSoon, setShowComingSoon] = useState(false);
     const [showHowToPlay, setShowHowToPlay] = useState(false);
+    // Death Notification State
+    const [deathNotification, setDeathNotification] = useState<string | null>(null);
 
     const engineRef = useRef<GameEngine | null>(null);
+
+    const handlePlayerDeath = () => {
+        // Play death sound
+        const audio = new Audio("/assets/sounds/death%20sound.mp3");
+        audio.play().catch(e => console.error("Error playing death sound:", e));
+
+        setDeathNotification("YOU DIED");
+        setTimeout(() => {
+            setDeathNotification(null);
+        }, 1000);
+    };
 
     useEffect(() => {
         if (gameState === "PLAYING" && canvasRef.current && socketRef.current) {
@@ -29,7 +42,8 @@ const App = () => {
                 socketRef.current,
                 playerDataRef,
                 localPlayerIdRef,
-                roomIdRef
+                roomIdRef,
+                handlePlayerDeath // Pass callback
             );
             engineRef.current.start();
         } else {
@@ -186,6 +200,12 @@ const App = () => {
                             ? `${lobbyData.maxPlayers - lobbyData.playerCount} bot(s) will fill the remaining slots`
                             : "Lobby is full!"}
                     </div>
+                </div>
+            )}
+
+            {deathNotification && (
+                <div className="death-overlay">
+                    <h1 className="death-text">{deathNotification}</h1>
                 </div>
             )}
 

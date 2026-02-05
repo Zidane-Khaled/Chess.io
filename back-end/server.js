@@ -442,12 +442,20 @@ function handleKill(game, killer, victim, roomId) {
         attempts++;
     }
 
+    // Reset victim stats on death
+    victim.kills = 0;
+    victim.piece = 'pawn';
+    victim.hp = PIECE_CONFIG['pawn'].hp;
+    victim.maxHp = PIECE_CONFIG['pawn'].hp;
+
     io.in(roomId).emit('player_respawn', {
         id: victim.id,
         x: victim.x,
         y: victim.y,
         hp: victim.hp,
-        kills: victim.kills
+        maxHp: victim.maxHp,
+        kills: victim.kills,
+        piece: victim.piece
     });
 
     io.in(roomId).emit('score_update', {
